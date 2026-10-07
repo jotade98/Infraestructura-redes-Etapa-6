@@ -136,3 +136,75 @@ existe por defecto, por eso hay que declararlo.
   `prometheus:latest`.
 - **Rutas relativas vs. absolutas**: `./prometheus.yml` es relativa a la carpeta
   del compose; las de cAdvisor (`/sys`, `/var/run`) son absolutas del host.
+
+## Parte 3 — Visualización y topología (`grafana` y `mynetwork`)
+
+### Qué hace Grafana
+
+**`grafana`** es la capa de visualización: no recolecta ni guarda métricas, sino
+que consulta a Prometheus y muestra los resultados en dashboards.
+
+```yaml
+grafana:
+  image: grafana/grafana:13.2.2
+  ports:
+    - "3000:3000"
+  environment:
+    - GF_SECURITY_ADMIN_PASSWORD=admin
+```
+
+- La versión está fijada a propósito (lo aclara el comentario del archivo): la
+  interfaz cambia entre releases y la guía describe pantallas concretas.
+- Publica el puerto 3000 porque es el servicio que se usa desde el navegador.
+- La contraseña del usuario admin se define por variable de entorno, igual que
+  en MySQL.
+
+### Por qué Grafana depende de Prometheus
+
+```yaml
+depends_on:
+  - prometheus
+```
+
+Prometheus es la fuente de datos (datasource) de Grafana. Sin Prometheus, los
+dashboards no tienen nada que mostrar, así que Compose lo arranca primero. Igual
+que en la Parte 1, `depends_on` solo garantiza el orden de inicio.
+
+### Cómo la red común permite resolver por nombre
+
+```yaml
+networks:
+  mynetwork:
+```
+
+Este bloque, al nivel raíz del archivo, declara la red. Los cinco servicios se
+conectan a ella con `networks: - mynetwork`. Al ser una red definida por el
+usuario, Docker le agrega un DNS interno: cada contenedor puede encontrar a los
+demás usando el nombre del servicio, sin conocer su IP.
+
+Esto se ve en los archivos de configuración:
+
+| Quién | A quién llama | Cómo |
+|---|---|---|
+| `dbexporter` | MySQL | `host=mysql` en `my.cnf` |
+| `prometheus` | cAdvisor | `cadvisor:8080` en `prometheus.yml` |
+| `prometheus` | dbexporter | `dbexporter:9104` en `prometheus.yml` |
+| `grafana` | Prometheus | `http://prometheus:9090` al configurar el datasource |
+
+El contraste es la app Flask: como corre fuera de la red, no puede usar el nombre
+`mysql`. Por eso el `setup.sh` tiene que averiguar la IP del contenedor con
+`docker inspect` y reemplazarla en `app.py` con `sed`.
+
+De los cinco servicios, solo dos publican puertos al host (Prometheus 9090 y
+Grafana 3000). El resto se comunica únicamente por `mynetwork`.
+
+### Sintaxis YAML de esta sección
+
+- **Claves de nivel raíz**: `version`, `services` y `networks` no tienen
+  indentación; son las secciones principales del archivo.
+- **Clave con valor vacío**: `mynetwork:` sin nada después significa "creá esta
+  red con la configuración por defecto" (driver bridge).
+- **`environment` como lista**: acá se escribe `- CLAVE=valor`, mientras que en
+  `mysql` se escribió como mapa (`CLAVE: valor`). Las dos formas son válidas.
+- **Comentarios**: las líneas con `#` no se ejecutan; documentan decisiones,
+  como el motivo de la versión fijada.
