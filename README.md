@@ -1,11 +1,42 @@
 # Infraestructura-redes-Etapa-6
 Trabajo grupal en etapa 6 para entregar
 
-Parte 3: explico grafana y la red mynetwork (visualización y topología)
+# Etapa 6 — Informe: stack de monitoreo con Docker Compose
 
-Explico por qué Grafana depende de Prometheus y cómo la red común permite que los cinco servicios se resuelvan por nombre.
+**Infraestructura de Redes 2·**
 
-Lo entendí así porque Grafana no genera datos, solo consulta a Prometheus, entonces no tiene sentido que arranque antes. La resolución por nombre la entendí siguiendo los archivos de configuración: my.cnf usa host=mysql y prometheus.yml usa cadvisor:8080 y dbexporter:9104, sin ninguna IP. El contraste me lo dio la app Flask, que al estar fuera de mynetwork necesita que setup.sh le inyecte la IP de MySQL con sed.
+## Introducción
+
+En este informe redespliego el stack de monitoreo de la Etapa 6 y explico el
+`docker-compose.yml` real que se usó. El archivo define cinco servicios que,
+juntos, permiten observar en vivo una base de datos MySQL y una app CRUD hecha
+en Flask:
+
+| Servicio | Rol en el stack |
+|---|---|
+| `mysql` | Base de datos que usa la app |
+| `dbexporter` | Traduce el estado de MySQL a métricas |
+| `cadvisor` | Mide el consumo de recursos de los contenedores |
+| `prometheus` | Recolecta y guarda todas las métricas |
+| `grafana` | Muestra las métricas en dashboards |
+
+El recorrido de los datos es el siguiente:
+
+```
+mysql ──► dbexporter ──┐
+contenedores ──► cadvisor ──┼──► prometheus ──► grafana ──► navegador
+app Flask (host) ──────┘
+```
+
+La explicación está dividida en tres partes, de forma que entre las tres quede
+cubierto todo el archivo:
+
+- **Parte 1 — Persistencia de datos:** `mysql` y `dbexporter`
+- **Parte 2 — Recolección de métricas:** `cadvisor` y `prometheus`
+- **Parte 3 — Visualización y topología:** `grafana` y la red `mynetwork`
+
+Cada parte explica qué hace cada servicio y la sintaxis YAML que aparece en esa
+sección del archivo.
 
 ## Parte 1 — Persistencia de datos (`mysql` y `dbexporter`)
 
