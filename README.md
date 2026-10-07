@@ -1,6 +1,12 @@
 # Infraestructura-redes-Etapa-6
 Trabajo grupal en etapa 6 para entregar
 
+Parte 3: explico grafana y la red mynetwork (visualización y topología)
+
+Explico por qué Grafana depende de Prometheus y cómo la red común permite que los cinco servicios se resuelvan por nombre.
+
+Lo entendí así porque Grafana no genera datos, solo consulta a Prometheus, entonces no tiene sentido que arranque antes. La resolución por nombre la entendí siguiendo los archivos de configuración: my.cnf usa host=mysql y prometheus.yml usa cadvisor:8080 y dbexporter:9104, sin ninguna IP. El contraste me lo dio la app Flask, que al estar fuera de mynetwork necesita que setup.sh le inyecte la IP de MySQL con sed.
+
 ## Parte 1 — Persistencia de datos (`mysql` y `dbexporter`)
 
 ### Qué hace cada servicio
@@ -208,3 +214,36 @@ Grafana 3000). El resto se comunica únicamente por `mynetwork`.
   `mysql` se escribió como mapa (`CLAVE: valor`). Las dos formas son válidas.
 - **Comentarios**: las líneas con `#` no se ejecutan; documentan decisiones,
   como el motivo de la versión fijada.
+
+## Conclusión
+
+Al juntar las tres partes queda claro que el `docker-compose.yml` no es una lista
+de cinco contenedores sueltos, sino una cadena: cada servicio existe porque otro
+lo necesita. MySQL genera el estado, `dbexporter` y `cadvisor` lo convierten en
+métricas, Prometheus las recolecta y Grafana las muestra. Si se cae un eslabón,
+los que vienen después se quedan sin datos.
+
+También hay decisiones que se repiten en las tres partes:
+
+- **Mínimo privilegio:** todo lo que solo necesita leerse se monta con `:ro`
+  (`my.cnf` en la Parte 1, las rutas del host de cAdvisor en la Parte 2).
+- **Mínima exposición:** de los cinco servicios, solo se publican los dos puertos
+  que se usan desde el navegador (9090 y 3000). El resto se comunica únicamente
+  por `mynetwork`.
+- **Configuración fuera de la imagen:** las contraseñas de MySQL y Grafana van por
+  variables de entorno, y `my.cnf` y `prometheus.yml` se montan desde el host.
+- **`depends_on` ordena, no espera:** aparece en `dbexporter` y en `grafana`, y en
+  los dos casos solo garantiza el orden de arranque. Por eso el `setup.sh` tiene
+  sus propios bucles de espera.
+
+El punto que me terminó de unir las tres explicaciones fue la app Flask. Al correr
+en el host y no en un contenedor, queda fuera de `mynetwork`, y eso explica dos
+cosas que por separado parecían detalles: el `extra_hosts` de Prometheus (Parte 2)
+y que el `setup.sh` tenga que inyectarle la IP de MySQL con `sed` (Parte 3). Ver lo
+que pasa cuando un componente no está en la red fue lo que mejor me mostró para
+qué sirve la red.
+
+En cuanto a la sintaxis, el archivo completo se arma con tres construcciones de
+YAML: mapas (`clave: valor`), listas (`- item`) e indentación con espacios para
+indicar qué está dentro de qué. Una vez identificadas, cualquier sección del
+archivo se puede leer de la misma manera.
